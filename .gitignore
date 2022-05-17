@@ -1,0 +1,9 @@
+venv/
+dist/
+uploads/
+downloads/
+.idea/
+.DS_Store
+*.pyc
+*~
+__pycache__
