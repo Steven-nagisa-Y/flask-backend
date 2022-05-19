@@ -3,10 +3,17 @@ import threading
 import uuid
 from threading import Thread
 
+import numpy as np
 from flask import *
+from flask_cors import CORS
+from paddlers.tasks.utils.visualize import visualize_detection
 from werkzeug.utils import secure_filename
 
+import paddlers as pdrs
+import cv2
+
 app = Flask(__name__)
+cors = CORS(app, resource={r"/*": {"origins": "*"}})
 app.config['UPLOAD_FOLDER'] = "./uploads"
 DOWNLOAD_DIR = "./downloads"
 
@@ -26,56 +33,111 @@ def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1] in ALLOW_FILE
 
 
-class targetExtra(Thread):
+class TargetExtra(Thread):
     def __init__(self, filename: str):
         super().__init__()
         self.filename = filename
+        self.predictor = pdrs.deploy.Predictor('core/inference_model/oseg')
 
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        # 这里处理目标提取图片逻辑
+        img = cv2.imread('./uploads/' + self.filename)
+        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
+        # img_file参数指定输入图像路径
+        result = self.predictor.predict(img_file=img)
+        print(result['label_map'].shape)
+        prob = result['label_map']
+        result = ((prob > 0.5) * 255).astype('uint8')
+        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
         # TODO
         lock.release()
 
 
-class targetDetect(Thread):
+class TargetDetect(Thread):
     def __init__(self, filename: str):
         super().__init__()
         self.filename = filename
+        self.predictor = pdrs.deploy.Predictor('core/inference_model/det')
 
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        # 这里处理目标检测图片逻辑
+        img = cv2.imread('./uploads/' + self.filename)
+        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
+
+        # img_file参数指定输入图像路径
+        result = self.predictor.predict(img_file=img)
+        vis = img
+        if len(result) > 0:
+            vis = visualize_detection(
+                np.array(vis), result,
+                color=np.asarray([[0, 255, 0]], dtype=np.uint8),
+                threshold=0.2, save_dir=None
+            )
+        # result = ((prob>0.5) * 255).astype('uint8')
+        vis = cv2.resize(vis, (512, 512))  # 将输出图像大小改为640*480
+        cv2.imwrite('./downloads/' + self.filename, vis)  # 保存结果
         # TODO
         lock.release()
 
 
-class transDetect(Thread):
+class TransDetect(Thread):
     def __init__(self, filename: str):
         super().__init__()
-        self.filename = filename
-        self.new_filename = filename.replace("transDetect", "transDetectNew")
+        self.new_filename = filename
+        self.filename = filename.replace("transDetectNew", "transDetect")
+        self.predictor = pdrs.deploy.Predictor('core/inference_model')
 
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        # 这里处理变换检测图片逻辑
+        print("=============>", self.filename, self.new_filename)
+        img = cv2.imread('./uploads/' + self.filename)
+        img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
+
+        img1 = cv2.imread('./uploads/' + self.new_filename)
+        img1 = cv2.resize(img1, (256, 256), interpolation=cv2.INTER_CUBIC)
+
+        # img_file参数指定输入图像路径
+        result = self.predictor.predict(img_file=(img, img1))
+        print(result[0]['label_map'].shape)
+        prob = result[0]['label_map']
+        result = ((prob > 0.5) * 255).astype('uint8')
+        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
+
         # TODO
         lock.release()
 
 
-class terrainClassify(Thread):
+class TerrainClassify(Thread):
     def __init__(self, filename: str):
         super().__init__()
         self.filename = filename
+        self.predictor = pdrs.deploy.Predictor('core/inference_model/class')
 
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
         # 这里处理地物分类图片逻辑
-        # TODO
+        img = cv2.imread('./uploads/' + self.filename)
+        img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
+
+        # img_file参数指定输入图像路径
+        result = self.predictor.predict(img_file=img)
+        print(result['label_map'].shape)
+        prob = result['label_map']
+        lut = np.zeros((256, 3), dtype=np.uint8)
+        lut[0] = [255, 0, 0]
+        lut[1] = [30, 255, 142]
+        lut[2] = [60, 0, 255]
+        lut[3] = [255, 222, 0]
+        lut[4] = [0, 0, 0]
+        result = lut[prob]
+        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
         lock.release()
 
 
@@ -105,7 +167,7 @@ def handleFunc(name: str) -> object:
             return {"errMsg": "图片上传错误", "status": 1}
         # 有两个图片上传则需要保持id一致
         # 只在变换检测中，二次请求中携带id
-        if 'id' in request.form:
+        if is_two := 'id' in request.form:
             random_id = request.form.get('id')
         file_path = f"{func_name}-{random_id}-{secure_filename(file.filename)}"
         src_path = os.path.join(app.config['UPLOAD_FOLDER'], file_path)
@@ -115,12 +177,21 @@ def handleFunc(name: str) -> object:
         # 图片位置是：src_path 这个变量
         # 图片处理好之后放在 /downloads文件夹下，文件名不变为 file_path
         func_map = {
-            "targetExtra": targetExtra,
-            "targetDetect": targetDetect,
-            "transDetect": transDetect,
-            "terrainClassify": terrainClassify,
+            "targetExtra": TargetExtra,
+            "targetDetect": TargetDetect,
+            "transDetect": TransDetect,
+            "terrainClassify": TerrainClassify,
         }
-        func = func_map[func_name](src_path)
+        if func_name == 'transDetect':
+            return {"errMsg": "coutinue", "status": 0,
+                    "data": {
+                        "upload": f"{HOST}/uploads/{file_path}",
+                        "download": f"{HOST}/downloads/{file_path}",
+                        "id": random_id
+                    }}
+        if func_name == 'transDetectNew':
+            func_name = 'transDetect'
+        func = func_map[func_name](file_path)
         func.start()
         return {"errMsg": "", "status": 0,
                 "data": {
