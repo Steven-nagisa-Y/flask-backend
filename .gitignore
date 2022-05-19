@@ -7,3 +7,6 @@ downloads/
 *.pyc
 *~
 __pycache__
+
+# 模型数据暂不开源
+core/

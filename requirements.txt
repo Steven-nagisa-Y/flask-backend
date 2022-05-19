@@ -1,2 +1,5 @@
 flask~=2.1.2
 Werkzeug~=2.1.2
+paddlers~=0.0.1
+opencv-python~=4.5.5.64
+numpy~=1.22.3
