@@ -1,24 +1,25 @@
+import http.server
 import os.path
+import socketserver
 import threading
 import uuid
 from threading import Thread
 
-import numpy as np
 from flask import *
 from flask_cors import CORS
 from paddlers.tasks.utils.visualize import visualize_detection
-from werkzeug.utils import secure_filename
-
+import numpy as np
 import paddlers as pdrs
 import cv2
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-cors = CORS(app, resource={r"/*": {"origins": "*"}})
+cors = CORS(app, resource=r"/*", supports_credentials=True)
 app.config['UPLOAD_FOLDER'] = "./uploads"
 DOWNLOAD_DIR = "./downloads"
 
 ALLOW_FILE = {'jpg', 'jpeg', 'png'}
-HOST = "http://localhost:5050"
+HOST = "http://localhost:5050"  # 如果要改端口号，改这里的5050
 
 FUNC_NAMES = {
     "targetExtra": "目标提取",
@@ -42,17 +43,18 @@ class TargetExtra(Thread):
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        img = cv2.imread('./uploads/' + self.filename)
-        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
-        # img_file参数指定输入图像路径
-        result = self.predictor.predict(img_file=img)
-        print(result['label_map'].shape)
-        prob = result['label_map']
-        result = ((prob > 0.5) * 255).astype('uint8')
-        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
-        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
-        # TODO
-        lock.release()
+        try:
+            img = cv2.imread('./uploads/' + self.filename)
+            img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
+            # img_file参数指定输入图像路径
+            result = self.predictor.predict(img_file=img)
+            print(result['label_map'].shape)
+            prob = result['label_map']
+            result = ((prob > 0.5) * 255).astype('uint8')
+            result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+            cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
+        finally:
+            lock.release()
 
 
 class TargetDetect(Thread):
@@ -64,23 +66,23 @@ class TargetDetect(Thread):
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        img = cv2.imread('./uploads/' + self.filename)
-        img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
-
-        # img_file参数指定输入图像路径
-        result = self.predictor.predict(img_file=img)
-        vis = img
-        if len(result) > 0:
-            vis = visualize_detection(
-                np.array(vis), result,
-                color=np.asarray([[0, 255, 0]], dtype=np.uint8),
-                threshold=0.2, save_dir=None
-            )
-        # result = ((prob>0.5) * 255).astype('uint8')
-        vis = cv2.resize(vis, (512, 512))  # 将输出图像大小改为640*480
-        cv2.imwrite('./downloads/' + self.filename, vis)  # 保存结果
-        # TODO
-        lock.release()
+        try:
+            img = cv2.imread('./uploads/' + self.filename)
+            img = cv2.resize(img, (512, 512), interpolation=cv2.INTER_CUBIC)
+            # img_file参数指定输入图像路径
+            result = self.predictor.predict(img_file=img)
+            vis = img
+            if len(result) > 0:
+                vis = visualize_detection(
+                    np.array(vis), result,
+                    color=np.asarray([[0, 255, 0]], dtype=np.uint8),
+                    threshold=0.2, save_dir=None
+                )
+            # result = ((prob>0.5) * 255).astype('uint8')
+            vis = cv2.resize(vis, (512, 512))  # 将输出图像大小改为640*480
+            cv2.imwrite('./downloads/' + self.filename, vis)  # 保存结果
+        finally:
+            lock.release()
 
 
 class TransDetect(Thread):
@@ -94,22 +96,20 @@ class TransDetect(Thread):
         lock = threading.Lock()
         lock.acquire()
         print("=============>", self.filename, self.new_filename)
-        img = cv2.imread('./uploads/' + self.filename)
-        img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
-
-        img1 = cv2.imread('./uploads/' + self.new_filename)
-        img1 = cv2.resize(img1, (256, 256), interpolation=cv2.INTER_CUBIC)
-
-        # img_file参数指定输入图像路径
-        result = self.predictor.predict(img_file=(img, img1))
-        print(result[0]['label_map'].shape)
-        prob = result[0]['label_map']
-        result = ((prob > 0.5) * 255).astype('uint8')
-        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
-        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
-
-        # TODO
-        lock.release()
+        try:
+            img = cv2.imread('./uploads/' + self.filename)
+            img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
+            img1 = cv2.imread('./uploads/' + self.new_filename)
+            img1 = cv2.resize(img1, (256, 256), interpolation=cv2.INTER_CUBIC)
+            # img_file参数指定输入图像路径
+            result = self.predictor.predict(img_file=(img, img1))
+            print(result[0]['label_map'].shape)
+            prob = result[0]['label_map']
+            result = ((prob > 0.5) * 255).astype('uint8')
+            result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+            cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
+        finally:
+            lock.release()
 
 
 class TerrainClassify(Thread):
@@ -121,24 +121,50 @@ class TerrainClassify(Thread):
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
-        # 这里处理地物分类图片逻辑
-        img = cv2.imread('./uploads/' + self.filename)
-        img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
+        try:
+            img = cv2.imread('./uploads/' + self.filename)
+            img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
 
-        # img_file参数指定输入图像路径
-        result = self.predictor.predict(img_file=img)
-        print(result['label_map'].shape)
-        prob = result['label_map']
-        lut = np.zeros((256, 3), dtype=np.uint8)
-        lut[0] = [255, 0, 0]
-        lut[1] = [30, 255, 142]
-        lut[2] = [60, 0, 255]
-        lut[3] = [255, 222, 0]
-        lut[4] = [0, 0, 0]
-        result = lut[prob]
-        result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
-        cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
-        lock.release()
+            # img_file参数指定输入图像路径
+            result = self.predictor.predict(img_file=img)
+            print(result['label_map'].shape)
+            prob = result['label_map']
+            lut = np.zeros((256, 3), dtype=np.uint8)
+            lut[0] = [255, 0, 0]
+            lut[1] = [30, 255, 142]
+            lut[2] = [60, 0, 255]
+            lut[3] = [255, 222, 0]
+            lut[4] = [0, 0, 0]
+            result = lut[prob]
+            result = cv2.resize(result, (512, 512))  # 将输出图像大小改为640*480
+            cv2.imwrite('./downloads/' + self.filename, result)  # 保存结果
+        finally:
+            lock.release()
+
+
+class HTTPHandler(http.server.SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, directory="dist", **kwargs)
+
+
+class HttpServer:
+    def __init__(self, port=8000):
+        super().__init__()
+        self.port = port
+
+    def run(self) -> None:
+        lock = threading.Lock()
+        lock.acquire()
+        print("HTTP Server running at PORT:", self.port)
+        try:
+            Handler = HTTPHandler
+            Handler.extensions_map.update({
+                ".js": "application/javascript",
+            })
+            httpd = socketserver.TCPServer(("", self.port), Handler)
+            httpd.serve_forever()
+        finally:
+            lock.release()
 
 
 @app.route('/')
@@ -167,14 +193,12 @@ def handleFunc(name: str) -> object:
             return {"errMsg": "图片上传错误", "status": 1}
         # 有两个图片上传则需要保持id一致
         # 只在变换检测中，二次请求中携带id
-        if is_two := 'id' in request.form:
+        if 'id' in request.form:
             random_id = request.form.get('id')
         file_path = f"{func_name}-{random_id}-{secure_filename(file.filename)}"
         src_path = os.path.join(app.config['UPLOAD_FOLDER'], file_path)
         file.save(src_path)
         print("Uploaded file:", src_path)
-        # 在这里可以处理图片了
-        # 图片位置是：src_path 这个变量
         # 图片处理好之后放在 /downloads文件夹下，文件名不变为 file_path
         func_map = {
             "targetExtra": TargetExtra,
@@ -234,4 +258,7 @@ if __name__ == '__main__':
     for p in paths:
         if not os.path.exists(p):
             os.makedirs(p)
+    httpserver = HttpServer(port=8000)
+    thread = Thread(target=httpserver.run)
+    thread.start()
     app.run(host='0.0.0.0', port=5050, debug=True)
