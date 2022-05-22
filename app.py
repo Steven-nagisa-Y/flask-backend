@@ -90,19 +90,19 @@ class TransDetect(Thread):
         super().__init__()
         self.new_filename = filename
         self.filename = filename.replace("transDetectNew", "transDetect")
-        self.predictor = pdrs.deploy.Predictor('core/inference_model')
+        self.predictor = pdrs.deploy.Predictor('core/inference_model/cd')
 
     def run(self) -> None:
         lock = threading.Lock()
         lock.acquire()
         print("=============>", self.filename, self.new_filename)
         try:
-            img = cv2.imread('./uploads/' + self.filename)
-            img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
-            img1 = cv2.imread('./uploads/' + self.new_filename)
-            img1 = cv2.resize(img1, (256, 256), interpolation=cv2.INTER_CUBIC)
+            # img = cv2.imread('./uploads/' + self.filename)
+            # img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_CUBIC)
+            # img1 = cv2.imread('./uploads/' + self.new_filename)
+            # img1 = cv2.resize(img1, (256, 256), interpolation=cv2.INTER_CUBIC)
             # img_file参数指定输入图像路径
-            result = self.predictor.predict(img_file=(img, img1))
+            result = self.predictor.predict(img_file=('./uploads/' + self.filename, './uploads/' + self.new_filename))
             print(result[0]['label_map'].shape)
             prob = result[0]['label_map']
             result = ((prob > 0.5) * 255).astype('uint8')
